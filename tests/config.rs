@@ -1,31 +1,40 @@
 use std::convert::Into;
 use std::path::Path;
 
+use ::tracing as t;
+
 use tracing_config::config::model::*;
 use tracing_config::config::*;
-use tracing_config::*;
 
-const TEST_CONF_FILE: &str = "";
+pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+fn get_test_conf_file() -> &'static Path {
+    const TEST_CONF_FILE: &str = "";
+    if TEST_CONF_FILE == "" {
+        panic!("please set a value for the test conf file path in the test source");
+    }
+    std::path::Path::new(TEST_CONF_FILE)
+}
 
 #[test]
-fn test_try_init_config() -> Result<(), TracingConfigError> {
-    let file_path = Path::new(TEST_CONF_FILE);
-    let tracing_config = read_config(file_path, RESOLVE_FROM_ENV_DEPTH)?;
-    let _wg = init_config(get_env_debug_mode(), &tracing_config)?;
+fn test_try_init_config() -> Result<()> {
+    tracing_config::init!(
+       path : get_test_conf_file()
+    );
 
-    let cs_id = "gg";
+    let id = "my_id";
 
-    let _e = t::info_span!("some span", cs_id).entered();
-    t::info!("yes, this is in gg cs_id");
+    let _e = t::info_span!("some_span", id).entered();
+    t::info!("inside a span");
 
     Ok(())
 }
 
 #[test]
-fn test_write() -> Result<(), TracingConfigError> {
+fn test_write() -> Result<()> {
     use std::collections::HashMap;
 
-    let file_path = Path::new(TEST_CONF_FILE);
+    let file_path = get_test_conf_file();
 
     let mut filters = HashMap::new();
     let mut writers = HashMap::new();
@@ -48,10 +57,10 @@ fn test_write() -> Result<(), TracingConfigError> {
 
     writers.insert("stdout".to_owned(), Writer::StandardOutput);
     writers.insert(
-        "ocpp".to_owned(),
+        "proto".to_owned(),
         Writer::File(FileWriter {
-            directory_path: "${env:fs_app_logs}/rust/ocpp".to_owned(),
-            file_name: "${sl:cs_id}".to_owned(),
+            directory_path: "${env:fs_app_logs}/rust/proto".to_owned(),
+            file_name: "${sl:id}".to_owned(),
             file_ext: Some("log".to_owned()),
             max_log_files: Some(50),
             rotation: Some(FileRotation::Daily),
@@ -117,16 +126,16 @@ fn test_write() -> Result<(), TracingConfigError> {
         }),
     );
     layers.insert(
-        "ocpp-sifting".to_owned(),
+        "proto-sifting".to_owned(),
         Layer::Sifting(SiftingLayer {
             filter: None,
-            writer: "ocpp".to_owned(),
-            layer: "ocpp".to_owned(),
-            sift_on: vec!["cs_id".to_owned()],
+            writer: "proto".to_owned(),
+            layer: "proto".to_owned(),
+            sift_on: vec!["id".to_owned()],
         }),
     );
     layers.insert(
-        "ocpp".to_owned(),
+        "proto".to_owned(),
         Layer::Fmt(FmtLayer {
             filter: None,
             writer: "${sl:sifted}".to_owned(),
@@ -212,8 +221,8 @@ fn test_write() -> Result<(), TracingConfigError> {
 }
 
 #[test]
-fn test_read() -> Result<(), TracingConfigError> {
-    let file_path = Path::new(TEST_CONF_FILE);
+fn test_read() -> Result<()> {
+    let file_path = get_test_conf_file();
 
     let deserialized_config = read_config(file_path, RESOLVE_FROM_ENV_DEPTH)?;
     println!("Deserialized Config: {:#?}", deserialized_config);

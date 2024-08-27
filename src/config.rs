@@ -1,4 +1,4 @@
-//! The config module contains the data model for the configuration file and [`tracing`][mod@t] initialization routines.
+//! The config module contains the data model for the configuration file and [`tracing`][mod@tracing] initialization routines.
 //!
 //! This uses the [`serde`][mod@serde] and [`toml`][mod@toml] crates to serialize and deserialize the configuration file.
 //! Once the configuration is read from disk, environment variables are then resolved.
@@ -7,14 +7,9 @@
 //!
 //! The [`model`][mod@model] submodule simply contains the configuration data model, start from there to understand how to create your tracing.toml.
 //!
-//! This module contains tracing initialization routines.
-//! 
-//! - [`init`][fn@init] for release builds, in your `main()` panics
-//! - [`init_test`][fn@init_test] for tests, in your `#[test]` panics
-//! - [`try_init`][fn@try_init] If you would like to avoid panics
-//! - [`init_path`][fn@init_path] You already know the configuration file path and for some reason you can't set the `tracing_config` environment variable.
-//! - [`init_config`][fn@init_config] You have custom needs.
+//! This module contains the tracing initialization routine [`initialize`][fn@initialize].
 
+#[path = "config.model.rs"]
 pub mod model;
 
 use serde::{Deserialize, Serialize};
@@ -27,45 +22,107 @@ use std::sync::{Arc, Weak, Mutex};
 use crate::interpolate::resolve_from_env_recursive;
 use crate::tracing::{SpanRecordLayer, JsonLayer, SiftingLayer, SiftingLayerSelector};
 
-use ts::layer::SubscriberExt as _;
-use ts::Layer as _;
-// use ts::layer::Layered;
+use ::tracing_subscriber::layer::SubscriberExt as _;
+use ::tracing_subscriber::Layer as _;
+use ::tracing_subscriber as ts;
+use ::tracing_appender as ta;
+use ::tracing as t;
 
 use crate::error::*;
+
+/// println macro when no other framework is available.
+macro_rules! emit {
+    (TRACE, $verbosity:expr, $($arg:tt)*) => {{
+        emit!($verbosity, $crate::config::model::Level::Trace, $($arg)*);
+    }};
+    (DEBUG, $verbosity:expr, $($arg:tt)*) => {{
+        emit!($verbosity, $crate::config::model::Level::Debug, $($arg)*);
+    }};
+    (INFO, $verbosity:expr, $($arg:tt)*) => {{
+        emit!($verbosity, $crate::config::model::Level::Info, $($arg)*);
+    }};
+    (WARN, $verbosity:expr, $($arg:tt)*) => {{
+        emit!($verbosity, $crate::config::model::Level::Warn, $($arg)*);
+    }};
+    (ERROR, $verbosity:expr, $($arg:tt)*) => {{
+        emit!($verbosity, $crate::config::model::Level::Error, $($arg)*);
+    }};
+    ( $verbosity:expr, $level:expr, $($arg:tt)* ) => {{
+        if let Some(verbosity) = $verbosity {
+            if verbosity <= $level {
+                use ::tracing_subscriber::fmt::time::FormatTime as _;
+                let mut now = String::new();
+                let mut now_writer = ::tracing_subscriber::fmt::format::Writer::new(&mut now);
+                ::tracing_subscriber::fmt::time::time().format_time(&mut now_writer).expect("unable to format_time");
+                let module_path = module_path!();
+                static ANSI_RESET : &str = "\x1B[0m";
+                static ANSI_DIM : &str = "\x1B[2m";
+                let (level, ansi_color, ansi_color_bold) = match $level {
+                    $crate::config::model::Level::Trace =>("TRACE","\x1B[35m", "\x1B[1;35m",),
+                    $crate::config::model::Level::Debug =>("DEBUG","\x1B[34m", "\x1B[1;34m",),
+                    $crate::config::model::Level::Info => ("INFO", "\x1B[32m", "\x1B[1;32m",),
+                    $crate::config::model::Level::Warn => ("WARN", "\x1B[33m", "\x1B[1;33m",),
+                    $crate::config::model::Level::Error =>("ERROR","\x1B[31m", "\x1B[1;31m",),
+                };
+                println!("{ANSI_DIM}{now}{ANSI_RESET} \
+                    {ansi_color}{level}{ANSI_RESET} \
+                    {ansi_color_bold}{module_path}{ANSI_RESET}\
+                    {ansi_color}: {}{ANSI_RESET}", format!($($arg)*));
+
+            }
+        }
+    }};
+}
+
+static ENV_TRACING_CONFIG: &str = "tracing_config";
+static ENV_TRACING_CONFIG_PARENT: &str = "tracing_config_parent";
+static ENV_TRACING_CONFIG_TEST: &str = "tracing_config_test";
+static ENV_TRACING_CONFIG_TEST_PARENT: &str = "tracing_config_test_parent";
 
 /// The value is set in stone at `25`
 ///
 /// This represents the `depth` with which [`resolve_from_env_recursive`][fn@resolve_from_env_recursive] is called by this module.
 pub const RESOLVE_FROM_ENV_DEPTH: u8 = 25;
 
-/// Allows [`init`][fn@init],[`try_init`][fn@try_init],[`init_test`][fn@init_test] and other init functions to return a custom error in case tracing was initialized twice.
-/// if called twice to error out with an [`AlreadyInitialized`][type@TracingConfigError::AlreadyInitialized] rather than other more ambiguous errors.
-static TRACING_INITIALIZED: Mutex<bool> = Mutex::new(false);
-
 /// A [`boxed`][fn@ts::Layer::boxed] [`tracing subscriber`][mod@ts] [`Layer`][trait@ts::layer::Layer]
-pub type BoxDynLayer<S> = Box<dyn ts::Layer<S> + Send + Sync>;
+type BoxDynLayer<S> = Box<dyn ts::Layer<S> + Send + Sync>;
 /// Represents the stack of layers this crate creates from a configuration file excluding the final `Vec` of dyn Layer.
-pub type LayeredSubscriber =
+type LayeredSubscriber =
     ts::layer::Layered<SpanRecordLayer, ts::layer::Layered<ts::EnvFilter, ts::Registry>>;
 /// Represents a full [`tracing`][mod@t] [`Subscriber`][trait@t::Subscriber] implemented by [`Layered`][struct@ts::layer::Layered]
-pub type TracingConfigSubscriber =
+type TracingConfigSubscriber =
     ts::layer::Layered<Vec<BoxDynLayer<LayeredSubscriber>>, LayeredSubscriber>;
 
 /// A [`TracingConfigGuard`] wrapped in an `Arc`<`Mutex`>
-pub type ArcMutexGuard = Arc<Mutex<TracingConfigGuard>>;
+type ArcMutexGuard = Arc<Mutex<Guard>>;
 /// A [`TracingConfigGuard`] wrapped in an `Weak`<`Mutex`>
-pub type WeakMutexGuard = Weak<Mutex<TracingConfigGuard>>;
+type WeakMutexGuard = Weak<Mutex<Guard>>;
 
 trait PushGuard<T> {
     fn push(&self, guard: T) -> Result<(), TracingConfigError>;
 }
 
+/// This guard contains data that must live for the entire lifetime of the program
+/// on drop() it will flush all remaining tracing events to their destination before closing the program.
+#[must_use = "Your program will randomly panic if you don't use the returned guard, do this : `let _tcg = tracing_config::init!{...};`"]
+pub struct TracingConfigGuard {
+    #[allow(dead_code)] // It's fine, we only use this for it's drop() and the "must_use"
+    arc_mutex_guard: ArcMutexGuard,
+}
+
+impl TracingConfigGuard {
+    fn new(arc_mutex_guard: ArcMutexGuard) -> Self {
+        Self { arc_mutex_guard }
+    }
+}
+
 /// A guard that flushes spans/events associated to asynchronous operations on a drop.
 /// It should only be dropped in main, dropping this early will result in a panic depending on how tracing is configured.
-pub struct TracingConfigGuard {
+#[must_use]
+struct Guard {
     ta: Vec<ta::non_blocking::WorkerGuard>,
 }
-impl TracingConfigGuard {
+impl Guard {
     fn new() -> Self {
         Self { ta: Vec::new() }
     }
@@ -101,7 +158,7 @@ macro_rules! set_conf {
     };
 }
 
-/// String representation for data model Level
+// String representation for data model Level
 impl AsRef<str> for model::Level {
     fn as_ref(&self) -> &str {
         match self {
@@ -110,6 +167,23 @@ impl AsRef<str> for model::Level {
             model::Level::Info => "info",
             model::Level::Warn => "warn",
             model::Level::Error => "error",
+        }
+    }
+}
+
+impl TryFrom<&str> for model::Level {
+    type Error = TracingConfigError;
+
+    fn try_from(value: &str) -> Result<Self, TracingConfigError> {
+        match value.to_lowercase().as_str() {
+            "trace" => Ok(model::Level::Trace),
+            "debug" => Ok(model::Level::Debug),
+            "info" => Ok(model::Level::Info),
+            "warn" => Ok(model::Level::Warn),
+            "error" => Ok(model::Level::Error),
+            _ => Err(TracingConfigError::InvalidLevel {
+                level: value.to_owned(),
+            }),
         }
     }
 }
@@ -635,7 +709,7 @@ where
     S: for<'lookup> ts::registry::LookupSpan<'lookup>,
     S: Send + Sync,
 {
-    let guard = TracingConfigGuard::new_arc_mutex();
+    let guard = Guard::new_arc_mutex();
 
     let mut layers: Vec<BoxDynLayer<S>> = Vec::new();
 
@@ -722,9 +796,10 @@ fn create_root_filter(
     let root_filter = match root_filter {
         Some(f) => f,
         None => {
-            return Err(TracingConfigError::Other(
-                "Could not initialize root filter".to_owned(),
-            ));
+            return Err(TracingConfigError::FilterNotFound {
+                filter: "root".to_owned(),
+                layer: "root_registry".to_owned(),
+            });
         }
     };
 
@@ -778,25 +853,25 @@ fn create_root_filter(
 /// - L2 is [`LayeredSubscriber`][type@LayeredSubscriber]
 ///
 /// This is what it expands to :
-/// ```
-/// ts::layer::Layered< *L1
-///     layer = Vec<Box<dyn ts::Layer<
-///     |           subscriber = ts::layer::Layered<
-///     |           |                layer = SpanRecordLayer,
-///     |           |                inner = ts::layer::Layered<
-///     |           |                |           layer = ts::EnvFilter,
-///     |           |                |           inner = ts::Registry
-///     |           |                +------ >
-///     |           +----------- >
-///     +------ > + Send + Sync>>,
-///     inner = ts::layer::Layered< *L2
-///     |           layer = SpanRecordLayer,
-///     |           inner = ts::layer::Layered< *L3
-///     |           |           layer = ts::EnvFilter,
-///     |           |           inner = ts::Registry
-///     |           +------ >
-///     +------ >
-/// >
+/// ```doc
+/// // ts::layer::Layered< *L1
+/// //     layer = Vec<Box<dyn ts::Layer<
+/// //     |           subscriber = ts::layer::Layered<
+/// //     |           |                layer = SpanRecordLayer,
+/// //     |           |                inner = ts::layer::Layered<
+/// //     |           |                |           layer = ts::EnvFilter,
+/// //     |           |                |           inner = ts::Registry
+/// //     |           |                +------ >
+/// //     |           +----------- >
+/// //     +------ > + Send + Sync>>,
+/// //     inner = ts::layer::Layered< *L2
+/// //     |           layer = SpanRecordLayer,
+/// //     |           inner = ts::layer::Layered< *L3
+/// //     |           |           layer = ts::EnvFilter,
+/// //     |           |           inner = ts::Registry
+/// //     |           +------ >
+/// //     +------ >
+/// // >
 /// ```
 fn create_subscriber(
     tracing_config: &model::TracingConfig,
@@ -811,221 +886,6 @@ fn create_subscriber(
         .with(layers);
 
     Ok((registry, guard))
-}
-
-/// Searches for a configuration file and returns it's path.
-///
-/// The function will first check if the environment variable `tracing_config` is set.
-/// If set it will resolve all `${env:key}` tokens where `key` is another environment variable (see [`resolve_from_env_recursive`][fn@resolve_from_env_recursive]).
-/// Should errors occur during `resolve_from_env_recursive`, the original `tracing_config` value will be used.
-///
-/// If `tracing_config` is set and if it points to an existing file, it's path is returned.
-///
-/// - If it points to an existing directory, the directory is added to a list of fallback directories.
-/// - If the path does not exist, the parent directory is added to the fallback directories (if it exists).
-///
-/// If the environment variable is not set or points to a non-existent directory, the function will use a set of fallback directories to search for the configuration file.
-///
-/// - `${bin_name}` is the name of the executable stripped of the file extension (for example in windows the `.exe` is removed). If `is_test` is true then `${bin_name}` contains some hex number at the end (i.e.: `${bin_name}-97dda3c7f8c6e1b6`) the hex number is removed.
-/// - `${user_home}` is the value of the environment variable `HOME`, if not present then `USERPROFILE` lastly if not present it's `.`.
-/// - `${bin_dir}` is the directory where the executable is currently on disk or if unable to retrieve it's the current working directory
-///
-/// The fallback directories are (included only if existing):
-/// - `${user_home}/${bin_name}`
-/// - `${user_home}`
-/// - `${bin_dir}`
-/// - The current working directory (see [`current_dir`][fn@std::env::current_dir])
-///
-/// Depending on the value of `is_test`, the function will search for different configuration files in the fallback directories:
-/// - If `is_test` is `false`:
-///     - `${fallback_dir}/tracing-${bin_name}.toml`
-///     - `${fallback_dir}/tracing.toml`
-///     - `${fallback_dir}/tracing-${bin_name}-test.toml`
-///     - `${fallback_dir}/tracing-test.toml`
-/// - If `is_test` is `true`:
-///     - `${fallback_dir}/tracing-${bin_name}-test.toml`
-///     - `${fallback_dir}/tracing-test.toml`
-///     - `${fallback_dir}/tracing-${bin_name}.toml`
-///     - `${fallback_dir}/tracing.toml`
-///
-/// # Arguments
-///
-/// * `is_test` - A boolean indicating if the function is running in a test environment.
-/// * `debug_mode` - If `true` it will [`println`][macro@println] information about the search.
-///
-/// # Returns
-///
-/// * `Option<PathBuf>` - The path to the configuration file if found, otherwise `None`.
-///
-/// # Example
-///
-/// ```rust
-/// let config_path = get_config_path(false);
-/// if let Some(path) = config_path {
-///     println!("Configuration file found at: {}", path.display());
-/// } else {
-///     println!("Configuration file not found.");
-/// }
-/// ```
-pub fn find_config_path(is_test: bool, debug_mode: bool) -> Option<PathBuf> {
-    use std::env;
-
-    if debug_mode {
-        println!(
-            "[tracing-config] checking paths for {} configuration",
-            (if is_test { "test" } else { "prod" })
-        );
-    }
-
-    let bin_name = env::current_exe()
-        .ok()
-        .and_then(|exe_path| {
-            exe_path
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-        })
-        .unwrap_or_else(|| {
-            if debug_mode {
-                println!("[tracing-config] could not get binary name, using \"default\"");
-            };
-            "default".to_string()
-        });
-
-    let bin_name = if is_test {
-        // If in test mode, strip the suffix after the last '-'
-        if let Some(index) = bin_name.rfind('-') {
-            let bin_name_stripped = bin_name[..index].to_string();
-            if debug_mode {
-                println!("[tracing-config] bin_name_stripped = \"{bin_name_stripped}\"; bin_name = \"{bin_name}\"");
-            }
-            bin_name_stripped
-        } else {
-            if debug_mode {
-                println!("[tracing-config] bin_name = \"{bin_name}\"");
-            }
-            bin_name
-        }
-    } else {
-        if debug_mode {
-            println!("[tracing-config] bin_name = \"{bin_name}\"");
-        }
-        bin_name
-    };
-
-    let user_home = env::var("HOME")
-        .unwrap_or_else(|_| env::var("USERPROFILE").unwrap_or_else(|_| ".".to_string()));
-    let user_home = Path::new(&user_home).to_path_buf();
-    if debug_mode {
-        println!("[tracing-config] user_home = {}", user_home.display());
-    }
-
-    let current_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if debug_mode {
-        println!("[tracing-config] current_dir = {}", current_dir.display());
-    }
-
-    let bin_dir = env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| current_dir.clone());
-
-    if debug_mode {
-        println!("[tracing-config] bin_dir = {}", bin_dir.display());
-    }
-
-    let mut fallback_directories = Vec::new();
-
-    if let Ok(env_path) = env::var("tracing_config") {
-        let env_path = resolve_from_env_recursive(env_path.as_str(), RESOLVE_FROM_ENV_DEPTH, "env")
-            .unwrap_or_else(|var_error| {
-                if debug_mode {
-                    println!(
-                        "[tracing-config] could not resolve ${{env:key}} tokens, error is : {var_error:?}"
-                    );
-                }
-                env_path
-            });
-        let env_path = PathBuf::from(env_path);
-
-        if env_path.is_file() {
-            return Some(env_path);
-        }
-
-        let env_path_exists = env_path.exists();
-        let parent = env_path.parent().map(|parent| parent.to_path_buf());
-
-        fallback_directories.push(env_path);
-
-        if !env_path_exists {
-            if let Some(parent) = parent {
-                fallback_directories.push(parent);
-            }
-        }
-    }
-
-    fallback_directories.push(user_home.join(&bin_name));
-    fallback_directories.push(user_home.to_path_buf());
-    fallback_directories.push(bin_dir);
-    fallback_directories.push(current_dir);
-
-    let fallback_directories = {
-        let mut valid_fallback_directories = Vec::new();
-        for dir in fallback_directories {
-            let is_dir = dir.is_dir();
-            let exists = dir.exists();
-            if debug_mode {
-                println!(
-                    "[tracing-config] fallback directory = {} | {}",
-                    dir.display(),
-                    (if is_dir {
-                        "ok"
-                    } else if exists {
-                        "not a directory"
-                    } else {
-                        "does not exist"
-                    })
-                );
-            }
-            if is_dir {
-                valid_fallback_directories.push(dir);
-            }
-        }
-        valid_fallback_directories
-    };
-
-    let config_filenames = if is_test {
-        vec![
-            format!("tracing-{}-test.toml", bin_name),
-            "tracing-test.toml".to_string(),
-            format!("tracing-{}.toml", bin_name),
-            "tracing.toml".to_string(),
-        ]
-    } else {
-        vec![
-            format!("tracing-{}.toml", bin_name),
-            "tracing.toml".to_string(),
-            format!("tracing-{}-test.toml", bin_name),
-            "tracing-test.toml".to_string(),
-        ]
-    };
-
-    for dir in &fallback_directories {
-        for config_file in &config_filenames {
-            let config_path = dir.join(config_file);
-            if debug_mode {
-                println!("[tracing-config] checking path: {}", config_path.display());
-            }
-            if config_path.exists() && config_path.is_file() {
-                println!(
-                    "[tracing-config] found configuration file path: {}",
-                    config_path.display()
-                );
-                return Some(config_path);
-            }
-        }
-    }
-
-    None
 }
 
 /// Writes `config` to `file_path`.
@@ -1077,7 +937,7 @@ pub fn write_config(
 
 /// Reads a [`TracingConfig`][struct@model::TracingConfig] from `file_path`.
 ///
-/// This is useful if you wish to [`init_config`][fn@init_config] yourself.
+/// This is useful if you wish to [`initialize`][fn@initialize] yourself.
 ///
 /// This function also resolves all environment variables `${env:key}` up to `resolve_from_env_depth` for all [`toml String`][type@toml::Value::String] (see [`resolve_from_env_recursive`][fn@crate::interpolate::toml::resolve_from_env_recursive])
 ///
@@ -1117,177 +977,403 @@ pub fn read_config(
     Ok(deserialized_config)
 }
 
-/// Returns `true` if the environment variable `tracing_config_debug` is set to the value `true`
-#[inline(always)]
-pub fn get_env_debug_mode() -> bool {
-    std::env::var("tracing_config_debug")
-        .map(|val| val == "true")
-        .unwrap_or(false)
-}
-
-/// Calls [`try_init`][fn@try_init] with `is_test = false` and `debug_mode` = true if environment variable `tracing_config_debug = true`
-/// 
-/// See docs at [`find_config_path`][fn@find_config_path] to understand where this function looks for the configuration file.
+/// Searches for a configuration file and returns it's path.
+///
+///
+/// # Arguments
+///
+/// * `qualifier` - See [`ProjectDirs`]
+/// * `organization` - See [`ProjectDirs`]
+/// * `name` - See [`ProjectDirs`]
+/// * `test` - If `true` the `search path` will prioritize `.toml` files that have a `-test` suffix.
+/// * `verbosity` - How much to print to stdout
+/// * `env` - Key of additional environment variable
+/// * `path` - Direct path to configuration file or dir.
 ///
 /// # Returns
-/// An [`ArcMutexGuard`][type@ArcMutexGuard], dropping the guard early will result in a panic depending on how tracing is configured.
+///
+/// * `Option<PathBuf>` - The path to the configuration file if found, otherwise `None`.
 /// 
-/// # Panics
-/// If `try_init` returns an error this panics with the same error.
-pub fn init() -> ArcMutexGuard {
-    let is_test = false;
-    let debug_mode = get_env_debug_mode();
-    let init_error = try_init(is_test, debug_mode);
-    match init_error {
-        Ok(guards) => guards,
-        Err(init_error) => {
-            if debug_mode {
-                println!("[tracing-config] init error; : (see previous messages) {init_error:#?}");
+#[doc = include_str!("../doc/configuration_file_search_path.md")]
+///
+#[doc = include_str!("../doc/reference_links.md")]
+pub fn find_config_path(
+    qualifier: &str,
+    organization: &str,
+    name: &str,
+    test: bool,
+    verbosity: Option<model::Level>,
+    env: Option<&str>,
+    path: Option<&Path>,
+) -> Option<PathBuf> {
+    use std::env;
+
+    fn env_var_with_resolve(key: &str, verbosity: Option<model::Level>) -> Option<String> {
+        match env::var(key) {
+            Ok(env_val) => {
+                match resolve_from_env_recursive(env_val.as_str(), RESOLVE_FROM_ENV_DEPTH, "env") {
+                    Ok(ok) => Some(ok),
+                    Err(var_error) => {
+                        match var_error {
+                            crate::interpolate::VarError::NotPresent { key: err_key } => {
+                                emit!(WARN, verbosity,
+                                    "Could not resolve ${{env:{err_key}}} token, in resolve chain for '{key}'; '{err_key}' is not present."
+                                );
+                            }
+                            crate::interpolate::VarError::NotUnicode {
+                                key: err_key,
+                                value: err_value,
+                            } => {
+                                emit!(WARN, verbosity,
+                                    "Could not resolve ${{env:{err_key}}} token, in resolve chain for '{key}'; '{err_key}' \
+                                    is present but is not unicode : {:?}.", err_value
+                                );
+                            }
+                        }
+                        Some(env_val)
+                    }
+                }
             }
-            panic!("[tracing-config] init error; : {init_error:#?}");
+            Err(var_error) => {
+                match var_error {
+                    env::VarError::NotPresent => {
+                        emit!(
+                            TRACE,
+                            verbosity,
+                            "Environment variable '{key}' is not present."
+                        )
+                    }
+                    env::VarError::NotUnicode(os_string) => {
+                        emit!(
+                            WARN,
+                            verbosity,
+                            "Environment variable '{key}' is present but is not unicode : {:?}.",
+                            os_string
+                        )
+                    }
+                }
+                None
+            }
         }
     }
-}
 
-/// Calls [`try_init`][fn@try_init] with `is_test = true` and `debug_mode` = true if environment variable `tracing_config_debug = true`
-///
-/// See docs at [`find_config_path`][fn@find_config_path] to understand where this function looks for the configuration file.
-/// 
-/// # Returns
-/// An [`ArcMutexGuard`][type@ArcMutexGuard], dropping the guard early will result in a panic depending on how tracing is configured.
-/// 
-/// # Panics
-/// If `try_init` returns an error this panics with the same error.
-pub fn init_test() -> ArcMutexGuard {
-    let is_test = true;
-    let debug_mode = get_env_debug_mode();
-    let init_error = try_init(is_test, debug_mode);
-    match init_error {
-        Ok(guards) => guards,
-        Err(init_error) => {
-            if debug_mode {
-                println!("[tracing-config] init error; : (see previous messages) {init_error:#?}");
-            }
-            panic!("[tracing-config] init error; : {init_error:#?}");
-        }
-    }
-}
+    let config_filenames = if test {
+        vec![
+            format!("tracing-{}-test.toml", name),
+            "tracing-test.toml".to_string(),
+            format!("tracing-{}.toml", name),
+            "tracing.toml".to_string(),
+        ]
+    } else {
+        vec![format!("tracing-{}.toml", name), "tracing.toml".to_string()]
+    };
 
-/// Initializes [`tracing`][mod@t].
-///
-/// - See docs at [`find_config_path`][fn@find_config_path] to understand where this function looks for the configuration file.
-/// - See docs at [`set_global_default`][fn@t::subscriber::set_global_default]
-///
-/// # Parameters
-/// * `is_test` - Set this to true if you are calling from a `#[test]` it affects [`find_config_path`][fn@find_config_path].
-/// * `debug_mode` - If true and something goes wrong, prints the error message.
-///
-/// # Returns
-/// An [`TracingConfigError`][enum@TracingConfigError] or [`ArcMutexGuard`][type@ArcMutexGuard], dropping the guard early will result in a panic depending on how tracing is configured.
-pub fn try_init(is_test: bool, debug_mode: bool) -> Result<ArcMutexGuard, TracingConfigError> {
-    let config_path = match find_config_path(is_test, debug_mode) {
-        Some(config_path) => config_path,
-        None => {
-            if debug_mode {
-                println!("[tracing-config] could not find the configuration file, please create a tracing.toml file or set tracing_config env var");
-            }
-            return Err(TracingConfigError::Other(
-                "could not find the configuration file".to_owned(),
+    emit!(
+        DEBUG,
+        verbosity,
+        "Searching config paths for {} configuration",
+        (if test { "test" } else { "prod" })
+    );
+
+    let path = path.map(|path| PathBuf::from(path));
+    let env = match env {
+        Some(env) => env_var_with_resolve(env, verbosity).map(|string| PathBuf::from(string)),
+        None => None,
+    };
+    let tracing_config =
+        env_var_with_resolve(ENV_TRACING_CONFIG, verbosity).map(|string| PathBuf::from(string));
+    let tracing_config_test = if test {
+        env_var_with_resolve(ENV_TRACING_CONFIG_TEST, verbosity).map(|string| PathBuf::from(string))
+    } else {
+        None
+    };
+
+    let (project_dirs_preference_dir, project_dirs_config_dir, project_dirs_config_local_dir) =
+        match directories::ProjectDirs::from(qualifier, organization, name) {
+            Some(project_dirs) => (
+                Some(project_dirs.preference_dir().to_path_buf()),
+                Some(project_dirs.config_dir().to_path_buf()),
+                Some(project_dirs.config_local_dir().to_path_buf()),
+            ),
+            None => (None, None, None),
+        };
+
+    let (
+        base_dirs_preference_dir,
+        base_dirs_config_dir,
+        base_dirs_config_local_dir,
+        base_dirs_home_dir,
+    ) = match directories::BaseDirs::new() {
+        Some(base_dirs) => (
+            Some(base_dirs.preference_dir().to_path_buf()),
+            Some(base_dirs.config_dir().to_path_buf()),
+            Some(base_dirs.config_local_dir().to_path_buf()),
+            Some(base_dirs.home_dir().to_path_buf()),
+        ),
+        None => (None, None, None, None),
+    };
+
+    let user_dirs_home_dir = match directories::UserDirs::new() {
+        Some(user_dirs) => Some(user_dirs.home_dir().to_path_buf()),
+        None => None,
+    };
+
+    let current_exe_dir = env::current_exe()
+        .ok()
+        .and_then(|dir| dir.parent().map(|parent| parent.to_path_buf()));
+    let current_dir = env::current_dir().ok();
+
+    let mut search_path = Vec::new();
+
+    search_path.push(("path", path));
+
+    if let Some(env) = &env {
+        if !env.exists() {
+            search_path.push((
+                "env_parent",
+                env.parent().map(|parent| parent.to_path_buf()),
             ));
         }
-    };
-    init_path(debug_mode, config_path.as_path())
-}
-
-/// Initializes [`tracing`][mod@t] given `config_path`
-///
-/// See docs at [`set_global_default`][fn@t::subscriber::set_global_default]
-///
-/// # Parameters
-/// * `debug_mode` - If true and something goes wrong, prints the error message.
-/// * `config_path` - Path to a toml file which deserializes into a [`TracingConfig`][struct@model::TracingConfig] object containing everything.
-///
-/// # Returns
-/// An [`TracingConfigError`][enum@TracingConfigError] or [`ArcMutexGuard`][type@ArcMutexGuard], dropping the guard early will result in a panic depending on how tracing is configured.
-pub fn init_path(
-    debug_mode: bool,
-    config_path: &Path,
-) -> Result<ArcMutexGuard, TracingConfigError> {
-    let tracing_config = match read_config(config_path, RESOLVE_FROM_ENV_DEPTH) {
-        Ok(tracing_config) => tracing_config,
-        Err(read_error) => {
-            if debug_mode {
-                println!("[tracing-config] init error; could not read the config file. path = {}; error : {read_error:?}", config_path.display());
-            }
-            return Err(read_error);
-        }
-    };
-
-    if debug_mode {
-        println!(
-            "[tracing-config] loaded configuration file titled : {}",
-            tracing_config.title
-        );
     }
 
-    init_config(debug_mode, &tracing_config)
+    search_path.push(("env", env));
+
+    if test {
+        if let Some(tracing_config_test) = &tracing_config_test {
+            if !tracing_config_test.exists() {
+                search_path.push((
+                    ENV_TRACING_CONFIG_TEST_PARENT,
+                    tracing_config_test
+                        .parent()
+                        .map(|parent| parent.to_path_buf()),
+                ));
+            }
+        }
+        search_path.push((ENV_TRACING_CONFIG_TEST, tracing_config_test));
+    }
+
+    if let Some(tracing_config) = &tracing_config {
+        if !tracing_config.exists() {
+            search_path.push((
+                ENV_TRACING_CONFIG_PARENT,
+                tracing_config.parent().map(|parent| parent.to_path_buf()),
+            ));
+        }
+    }
+
+    search_path.push((ENV_TRACING_CONFIG, tracing_config));
+    search_path.push(("project_dirs_preference_dir", project_dirs_preference_dir));
+    search_path.push(("project_dirs_config_dir", project_dirs_config_dir));
+    search_path.push((
+        "project_dirs_config_local_dir",
+        project_dirs_config_local_dir,
+    ));
+    search_path.push(("base_dirs_preference_dir", base_dirs_preference_dir));
+    search_path.push(("base_dirs_config_dir", base_dirs_config_dir));
+    search_path.push(("base_dirs_config_local_dir", base_dirs_config_local_dir));
+    search_path.push(("user_dirs_home_dir", user_dirs_home_dir));
+    search_path.push(("base_dirs_home_dir", base_dirs_home_dir));
+    search_path.push(("current_exe_dir", current_exe_dir));
+    search_path.push(("current_dir", current_dir));
+
+    let search_path: Vec<(&str, PathBuf)> = search_path
+        .into_iter()
+        .filter_map(|(name, path)| match path {
+            None => {
+                emit!(DEBUG, verbosity, "search_path : {name:<29} => not set");
+                None
+            }
+            Some(path) => {
+                let path_exists = path.exists();
+                emit!(
+                    DEBUG,
+                    verbosity,
+                    "search_path : {name:<29} => {} {}",
+                    (if path_exists { "[v]" } else { "[ ]" }),
+                    path.display()
+                );
+                if path_exists {
+                    Some((name, path))
+                } else {
+                    None
+                }
+            }
+        })
+        .collect();
+
+    for (name, path) in search_path {
+        emit!(TRACE, verbosity, "checking path => {}", path.display());
+        if path.is_file() {
+            emit!(
+                INFO,
+                verbosity,
+                "search_path : found {name} => {}",
+                path.display()
+            );
+            return Some(path);
+        }
+
+        for config_file in &config_filenames {
+            let config_path = path.join(config_file);
+            emit!(
+                TRACE,
+                verbosity,
+                "checking path => {}",
+                config_path.display()
+            );
+
+            if config_path.is_file() {
+                emit!(
+                    INFO,
+                    verbosity,
+                    "search_path : found {name} => {}",
+                    config_path.display()
+                );
+                return Some(config_path);
+            }
+        }
+    }
+
+    None
 }
 
-/// Initializes [`tracing`][mod@t] given `tracing_config`
+#[doc = include_str!("../doc/config_initialize.md")]
 ///
-/// See docs at [`set_global_default`][fn@t::subscriber::set_global_default]
-///
-/// # Parameters
-/// * `debug_mode` - If true and something goes wrong, prints the error message.
-/// * `tracing_config` - A [`TracingConfig`][struct@model::TracingConfig] object containing everything.
-///
-/// # Returns
-/// An [`TracingConfigError`][enum@TracingConfigError] or [`ArcMutexGuard`][type@ArcMutexGuard], dropping the guard early will result in a panic depending on how tracing is configured.
-pub fn init_config(
-    debug_mode: bool,
-    tracing_config: &model::TracingConfig,
-) -> Result<ArcMutexGuard, TracingConfigError> {
-    let mut is_tracing_initialized = match TRACING_INITIALIZED.lock() {
+#[doc = include_str!("../doc/reference_links.md")]
+pub fn initialize(
+    qualifier: &str,
+    organization: &str,
+    name: &str,
+    test: bool,
+    verbosity: Option<model::Level>,
+    env: Option<&str>,
+    path: Option<&Path>,
+    config: Option<model::TracingConfig>,
+) -> Result<TracingConfigGuard, TracingConfigError> {
+    static TRACING_INITIALIZED: Mutex<u32> = Mutex::new(0);
+
+    let mut tracing_init_count = match TRACING_INITIALIZED.lock() {
         Ok(mtx_guard) => mtx_guard,
         Err(_poison) => {
-            if debug_mode {
-                println!("[tracing-config] init error; init lock is poisoned, this is a bug!");
-            }
+            emit!(ERROR, verbosity, "Init lock is poisoned, this is a bug!");
             return Err(TracingConfigError::PoisonError(
                 "TRACING_INITIALIZED".to_owned(),
             ));
         }
     };
 
-    if *is_tracing_initialized {
-        if debug_mode {
-            println!("[tracing-config] init error; init functions may be called only once, usually in the main() function");
-        }
+    if *tracing_init_count > 0 {
+        *tracing_init_count += 1;
+        emit!(WARN, verbosity, "Ignored init, it must be called only once, usually in the main() function, init was called {} times", *tracing_init_count);
         return Err(TracingConfigError::AlreadyInitialized);
     }
 
-    let (subscriber, guards) = match create_subscriber(tracing_config) {
-        Ok(ok) => ok,
-        Err(error) => {
-            if debug_mode {
-                println!("[tracing-config] init error; could not create a subscriber : {error:#?}");
+    fn init_config(
+        verbosity: Option<model::Level>,
+        tracing_config: model::TracingConfig,
+    ) -> (bool, Result<TracingConfigGuard, TracingConfigError>) {
+        let mut is_tracing_initialized = false;
+
+        let (subscriber, guards) = match create_subscriber(&tracing_config) {
+            Ok(ok) => ok,
+            Err(error) => {
+                emit!(
+                    ERROR,
+                    verbosity,
+                    "Could not create a subscriber : {error:#?}"
+                );
+                return (is_tracing_initialized, Err(error));
             }
-            return Err(error);
+        };
+
+        match t::subscriber::set_global_default(subscriber) {
+            Ok(_) => (),
+            Err(error) => {
+                emit!(
+                    ERROR,
+                    verbosity,
+                    "Could not set subscriber as global default : {error:#?}"
+                );
+                return (
+                    is_tracing_initialized,
+                    Err(TracingConfigError::AlreadyInitialized),
+                );
+            }
+        }
+
+        is_tracing_initialized = true;
+
+        emit!(INFO, verbosity, "Tracing successfully initialized!");
+
+        (is_tracing_initialized, Ok(TracingConfigGuard::new(guards)))
+    }
+
+    if let Some(tracing_config) = config {
+        emit!(
+            INFO,
+            verbosity,
+            "Initializing with => config, title : \"{}\"",
+            tracing_config.title
+        );
+        if path.is_some() {
+            emit!(WARN, verbosity, "'config' is set, ignoring 'path'");
+        }
+        if env.is_some() {
+            emit!(WARN, verbosity, "'config' is set, ignoring 'env'");
+        }
+        let (is_init, result_guard) = init_config(verbosity, tracing_config);
+        *tracing_init_count += if is_init { 1 } else { 0 };
+        return result_guard;
+    }
+
+    emit!(
+        INFO,
+        verbosity,
+        "Initializing with => name : \"{}\", qualifier : \"{}\", organization : \"{}\", env = {:?}",
+        name,
+        qualifier,
+        organization,
+        env
+    );
+
+    let config_path = match find_config_path(
+        qualifier,
+        organization,
+        name,
+        test,
+        verbosity,
+        env,
+        path,
+    ) {
+        Some(config_path) => config_path,
+        None => {
+            emit!(ERROR, verbosity, "Could not find the configuration file, please create a tracing.toml file and double check the 'tracing_config' env var");
+            return Err(TracingConfigError::ConfigFileNotFound);
         }
     };
 
-    match t::subscriber::set_global_default(subscriber) {
-        Ok(_) => (),
-        Err(error) => {
-            if debug_mode {
-                println!("[tracing-config] init error; could not set subscriber as global default : {error:#?}");
-            }
+    let tracing_config = match read_config(&config_path, RESOLVE_FROM_ENV_DEPTH) {
+        Ok(tracing_config) => tracing_config,
+        Err(read_error) => {
+            emit!(
+                ERROR,
+                verbosity,
+                "Could not read the config file. path = \"{}\"; error : {read_error:?}",
+                config_path.display()
+            );
+            return Err(read_error);
         }
-    }
+    };
 
-    *is_tracing_initialized = true;
+    emit!(
+        INFO,
+        verbosity,
+        "Loaded configuration file titled : '{}' from : {}",
+        tracing_config.title,
+        config_path.display()
+    );
 
-    t::info!("Tracing successfully initialized!");
-
-    Ok(guards)
+    let (is_init, result_guard) = init_config(verbosity, tracing_config);
+    *tracing_init_count += if is_init { 1 } else { 0 };
+    result_guard
 }

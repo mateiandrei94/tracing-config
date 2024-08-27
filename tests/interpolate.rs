@@ -3,7 +3,6 @@ use tracing_config::interpolate::*;
 
 use tracing_config::interpolate::VarError;
 
-#[cfg(test)]
 mod http {
     #[derive(Debug, thiserror::Error)]
     pub enum HttpError {
@@ -19,12 +18,12 @@ mod http {
 }
 
 #[test]
-fn test_http_resolver() -> Result<(), self::http::HttpError> {
+fn test_http_resolver() -> Result<(), http::HttpError> {
     // This is the original input, we have to replace ${http:username} by calling a server
     let input = "Hello ${http:username}, have a nice day. The following is a placeholder that should not be replaced : ${s:k}. We reiterate that your name is : ${http:username}";
     println!("original input = {}", input);
-    // we specify that our resolver function could error with an http::HttpError
-    let input = resolve::<self::http::HttpError, _>(
+    // we specify that our resolver function could error with a http::HttpError
+    let input = resolve::<http::HttpError, _>(
         input,
         // our http resolver closure takes in the scheme and the key, it will be called once for ${http:username} and once for ${s:k}
         |scheme, key| {
@@ -32,7 +31,7 @@ fn test_http_resolver() -> Result<(), self::http::HttpError> {
             if scheme == "http" {
                 // we call our http service to get the value of the given key, in the example case is username
                 // we can either return the http error, or decide to not replace the value by returning Ok(None), in this case, should there not be one, we decided to return an error.
-                let value = self::http::get(format!("http://localhost:8080/variables/{}", key))?;
+                let value = http::get(format!("http://localhost:8080/variables/{}", key))?;
                 // if we were successfully able to return a value we return Ok(Some(Value))
                 // to indicate that the placeholder should be replaced
                 // in the example, given that there are 2 occurrences of ${http:username}, this closure will be called only once for scheme = http and key = username

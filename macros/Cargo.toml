@@ -1,0 +1,19 @@
+[package]
+name = "tracing-config-macros"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+authors = ["Matei Andrei"]
+repository = "https://github.com/mateiandrei94/tracing-config"
+description = "Helper crate to add proc-macros to tracing-config"
+keywords = ["tracing", "configuration"]
+categories = ["config", "development-tools::debugging"]
+
+[dependencies]
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[lib]
+proc-macro = true

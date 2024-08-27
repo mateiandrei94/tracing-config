@@ -5,6 +5,9 @@ use std::sync::RwLock;
 
 use serde_json::value::Value as JsonValue;
 
+use ::tracing as t;
+use ::tracing_subscriber as ts;
+
 use t::{Subscriber, Event as TEvent, Level as TLevel};
 use t::span::{Id as SpanId, Record as TSpanRecord, Attributes as TSpanAttributes};
 

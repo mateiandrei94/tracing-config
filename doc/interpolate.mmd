@@ -1,0 +1,33 @@
+%%{ init: { 'flowchart': { 'curve': 'basis' } } }%%
+flowchart LR
+
+    %% States
+    Start((Start))
+    Normal((Normal))
+    SchemeStart((SchemeStart))
+    Scheme((Scheme))
+    Key((Key))
+    Done((Done))
+
+    %% Initial
+    Start[Start]
+
+    %% Final
+    Done[Done]
+
+    %% Accepting
+    Normal(((Normal)))
+
+    Start --> Normal
+    Normal -- $ --> SchemeStart
+    Normal -- "! $" --> Normal
+    Normal -- EOF --> Done
+
+    SchemeStart -- "{" --> Scheme
+    SchemeStart -- "! {" --> Normal
+
+    Scheme -- ":" --> Key
+    Scheme -- "! :" --> Scheme
+
+    Key -- "}" --> Normal
+    Key -- "! }" --> Key

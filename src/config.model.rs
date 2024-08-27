@@ -106,12 +106,13 @@
 //!     "hyper::client::pool=error",
 //! ]
 //! ```
+#![doc = include_str!("../doc/prism_js.html")]
 
 use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
 
-/// An [`fmt Layer`][trait@ts::layer::Layer] [`formatter (check docs)`][struct@ts::fmt::format::Format]
+/// An [`fmt Layer`][trait@tracing_subscriber::layer::Layer] [`formatter (check docs)`][struct@tracing_subscriber::fmt::format::Format]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FmtLayerFormatter {
@@ -121,8 +122,8 @@ pub enum FmtLayerFormatter {
     Json,
 }
 
-/// A [`tracing`][mod@t] [`Level (check docs)`][struct@t::Level]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// A [`tracing`][mod@tracing] [`Level (check docs)`][struct@tracing::Level]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum Level {
     Trace,
@@ -132,7 +133,7 @@ pub enum Level {
     Error,
 }
 
-/// A [`tracing appender`][mod@ta] [`file rotation (check docs)`][struct@ta::rolling::Rotation] scheme
+/// A [`tracing appender`][mod@tracing_appender] [`file rotation (check docs)`][struct@tracing_appender::rolling::Rotation] scheme
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FileRotation {
@@ -142,7 +143,7 @@ pub enum FileRotation {
     Never,
 }
 
-/// Span event types, check [`FmtSpan`][struct@ts::fmt::format::FmtSpan] Implementations.
+/// Span event types, check [`FmtSpan`][struct@tracing_subscriber::fmt::format::FmtSpan] Implementations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SpanEvents {
@@ -162,7 +163,7 @@ pub enum SpanEvents {
     Full,
 }
 
-/// A file [`Writer`][trait@ts::fmt::MakeWriter]
+/// A file [`Writer`][trait@tracing_subscriber::fmt::MakeWriter]
 /// # Example
 /// ```toml
 /// # declare a writer named "my_file"
@@ -180,6 +181,7 @@ pub enum SpanEvents {
 /// lossy = false # no loss of information/logs
 /// thread_name = "my_file_async_thread"
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileWriter {
     /// Must point to an existing directory on the file system
@@ -198,7 +200,7 @@ pub struct FileWriter {
     pub non_blocking: NonBlockingOptions,
 }
 
-/// [`tracing appender`][mod@ta] [`NonBlocking`][struct@ta::non_blocking::NonBlockingBuilder] options
+/// [`tracing appender`][mod@tracing_appender] [`NonBlocking`][struct@tracing_appender::non_blocking::NonBlockingBuilder] options
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NonBlockingOptions {
     /// Whether non blocking is enabled or not
@@ -212,7 +214,7 @@ pub struct NonBlockingOptions {
     pub thread_name: Option<String>,
 }
 
-/// Supported [`Writer`][trait@ts::fmt::MakeWriter] types
+/// Supported [`Writer`][trait@tracing_subscriber::fmt::MakeWriter] types
 /// # Example
 /// ```toml
 /// # declare a writer named "my_writer_stdout"
@@ -223,6 +225,7 @@ pub struct NonBlockingOptions {
 /// type = "file"
 /// # see FileWriter for FileWriter properties
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
@@ -231,7 +234,7 @@ pub enum Writer {
     StandardOutput,
 }
 
-/// [`fmt Layer (see docs)`][struct@ts::fmt::Layer] configuration.
+/// [`fmt Layer (see docs)`][struct@tracing_subscriber::fmt::Layer] configuration.
 /// # Example
 /// ```toml
 /// # declare a layer named "app"
@@ -254,9 +257,10 @@ pub enum Writer {
 /// current_span = true # for "json" formatter only
 /// flatten_event = true # for "json" formatter only
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FmtLayer {
-    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@ts::filter::Filtered]
+    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@tracing_subscriber::filter::Filtered]
     pub filter: Option<String>,
     /// Where does the output go
     pub writer: String,
@@ -326,9 +330,10 @@ pub struct FmtLayer {
 /// event_span_uuid = true
 /// event_spans = true
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonLayer {
-    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@ts::filter::Filtered]
+    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@tracing_subscriber::filter::Filtered]
     pub filter: Option<String>,
     /// Where does the output go
     pub writer: String,
@@ -447,7 +452,7 @@ pub struct JsonLayer {
 ///
 /// # Layer
 /// The configuration file form of the sifting layer can only sift trough the [`FmtLayer`][struct@FmtLayer] or the [`JsonLayer`][struct@JsonLayer].
-/// The programmatic form of the [`SiftingLayer`][struct@crate::tracing::SiftingLayer] can sift trough any type of [`Layer`][trait@ts::Layer].
+/// The programmatic form of the [`SiftingLayer`][struct@crate::tracing::SiftingLayer] can sift trough any type of [`Layer`][trait@tracing_subscriber::Layer].
 ///
 /// The layer must **NOT** contain a `filter` itself. This is because the sifting layer creates fake layers and does not register them with tracing thus the filters (if any) are not registered either.
 /// A filter on a sifted layer results in a panic at runtime.
@@ -491,9 +496,10 @@ pub struct JsonLayer {
 /// span_events = "exit" # records exit span events
 /// ansi = false # it records to a file, so no colors
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SiftingLayer {
-    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@ts::filter::Filtered]
+    /// Applies a per Layer filter, makes this a [`Filtered Layer`][struct@tracing_subscriber::filter::Filtered]
     pub filter: Option<String>,
     /// A supported sifting writer; documented above.
     pub writer: String,
@@ -503,7 +509,7 @@ pub struct SiftingLayer {
     pub sift_on: Vec<String>,
 }
 
-/// Supported [`Layer`][trait@ts::Layer] types
+/// Supported [`Layer`][trait@tracing_subscriber::Layer] types
 /// # Example
 /// ```toml
 /// # declare a layer named "app"
@@ -511,6 +517,7 @@ pub struct SiftingLayer {
 /// type = "fmt" # type can be "fmt", "json", "sifting"
 /// # all other properties depend on the type of layer you are configuring
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
@@ -520,7 +527,7 @@ pub enum Layer {
     Sifting(SiftingLayer),
 }
 
-/// A [`Filter`][trait@ts::layer::Filter]
+/// A [`Filter`][trait@tracing_subscriber::layer::Filter]
 ///
 /// A filter named `root` is required in your configuration file
 ///
@@ -539,18 +546,19 @@ pub enum Layer {
 ///     "my_module::proto=info" # however my_module::proto only emits info events and above
 /// ]
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Filter {
     /// Base filter level
     pub level: Level,
-    /// See docs at [`EnvFilter`][struct@ts::filter::EnvFilter] `Directives` section
+    /// See docs at [`EnvFilter`][struct@tracing_subscriber::filter::EnvFilter] `Directives` section
     pub directives: Option<Vec<String>>,
 }
 
 /// This represents the whole configuration file.
 /// - `title` : does not do anything, is is for your reference
 /// - `writers` : list all your writers (where tracing will write events), only 1 per layer is allowed, reuse is not allowed
-/// - `layers` : list all your layers, these will all be added to a [`Registry`][struct@ts::registry::Registry]
+/// - `layers` : list all your layers, these will all be added to a [`Registry`][struct@tracing_subscriber::registry::Registry]
 /// - `filters` : list all your filters by name, reuse is allowed
 ///
 /// # Example :
@@ -579,6 +587,7 @@ pub struct Filter {
 /// [filter.root]
 /// # filter properties
 /// ```
+#[doc = include_str!("../doc/prism_js.html")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TracingConfig {
     pub title: String,

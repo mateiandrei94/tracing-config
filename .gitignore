@@ -1,1 +1,11 @@
-/target
+target/
+
+# IDE
+*.emacs*
+*.vim*
+*.idea*
+*.sublime*
+*.vscode*
+*.history*
+*.vsix*
+*.unotes*

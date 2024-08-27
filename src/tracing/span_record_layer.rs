@@ -8,6 +8,9 @@ use serde_json::value::Value as JsonValue;
 use indexmap::IndexMap;
 use uuid::Uuid;
 
+use ::tracing as t;
+use ::tracing_subscriber as ts;
+
 use t::Subscriber;
 use t::span::{Span, Attributes as SpanAttributes, Id as SpanId, Record as TSpanRecord};
 use t::field::{Field as TField, Visit as TFieldVisit};
@@ -17,7 +20,7 @@ use ts::registry::{Registry, SpanRef, LookupSpan};
 
 /// A simple data structure that represents span data in JSON format.
 ///
-/// This only words if the [`tracing`][mod@t] [`Subscriber`][trait@t::Subscriber] is a [`Registry`][struct@ts::registry::Registry] and the [`SpanRecordLayer`][struct@Layer] is attached to it right after the primary filter.
+/// This only works if the [`tracing`][mod@t] [`Subscriber`][trait@t::Subscriber] is a [`Registry`][struct@ts::registry::Registry] and the [`SpanRecordLayer`][struct@Layer] is attached to it right after the primary filter.
 ///
 /// - `timestamp` : when the span was created
 /// - `uuid` : generated (useful for correlating events)

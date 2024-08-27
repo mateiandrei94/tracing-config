@@ -1,40 +1,60 @@
 //! Perform `${scheme:key}` placeholder replacement given an `input` string.
 //!
-//! **NOTE** : No function in this module support placeholder "escaping", this may change in future releases. As of this release :
-//! - `scheme` is not allowed to contain `:` or `}` as `:` denotes a separation between scheme and key and `}` denotes the end of the placeholder.
+//! **NOTE** : No function in this module support placeholder "escaping" or "nesting", this may change in future releases.  
+//! As of this release :
+//! - `scheme` is not allowed to contain `:` or `}` as `:` denotes a separation between scheme and key
+//!   and `}` denotes the end of the placeholder.
 //! - `key` is not allowed to contain `}` as it denotes the end of the placeholder.
 //!
-//! This module contains several `resolve` and `resolve_recursive` functions which revolve around the same concept i.e.: replace all occurrences of `${scheme:key}` in a given string. Replacement occurs by `key` in the given `scheme`.
+//! This module contains several `resolve` and `resolve_recursive` functions which revolve around the same concept
+//! i.e.: replace all occurrences of `${scheme:key}` in a given string. Replacement occurs by `key` in the given `scheme`.
 //!
-//! - The `scheme` indicates the method or protocol, you can imagine a `scheme` as a `HashMap`, a good example are environment variables for example `env` represents environment variables. Other example schemes could be a `json` object or a `toml` table. Schemes are arbitrary, they are only useful as long as a resolver function recognizes them.
-//! - The `key` indicates a key to be retrieved from the selected method or protocol, for example the key `path` with the `env` method or protocol resolves to the system's path environment variable. The placeholder of which looks like `${env:path}`
+//! - The `scheme` indicates the method or protocol, you can imagine a `scheme` as being a `HashMap`,
+//!   a good example are environment variables; for example the `env` scheme could represent the environment variables HashMap.
+//!   Other example schemes could be a `json` object or a `toml` table. Schemes are arbitrary,
+//!   they are only useful as long as a resolver function recognizes them and is capable of retrieving a value for a certain key.
+//! - The `key` indicates a key to be retrieved from the selected method or protocol,
+//!   for example the key `path` with the `env` method or protocol resolves to the system's path environment variable.
+//!   The placeholder of which looks like `${env:path}`
 //!
 //! # Common `scheme`s
-//! Although the `scheme` is arbitrary and all functions in this module either accept a `match_scheme` parameter or a `resolver` function which can freely choose it's recognized schemes;
+//! Although the `scheme` is arbitrary and all functions in this module either accept a `match_scheme` parameter
+//! or a `resolver` function which can freely choose it's recognized schemes;
 //! other modules of this crate may use specific constant or "set in stone" schemes.
 //! - `env` : represents environment variables
 //! - `meta` : context specific metadata (usually a tracing span metadata)
 //! - `sl` and `sl:meta` : specific schemes used by the `SiftingLayer`.
 //!
-//! `Note`: The default resolver functions implemented in this module return errors rather than silently ignore them by not replacing tokens with known recognized/common schemes.
+//! `Note`: The default resolver functions implemented in this module return errors rather than silently ignore them
+//! by not replacing tokens with known recognized/common schemes or trough other ignore methods.
 //!
 //! # Recursive versions
-//! The `_recursive` version of a function will iteratively call it's non recursive counterpart with the same `cache` up to `depth` times by feeding in as `input` it's own output.
+//! The `_recursive` version of a function will iteratively call it's non recursive counterpart with the same `cache`
+//! up to `depth` times by feeding in as `input` it's own output while decreasing `depth` on each call.
 //!
-//! The only added benefit of using a `_recursive` version of a function is therefore a per `scheme` `cache` that spans across multiple calls and perhaps some memory optimizations.
+//! The only added benefit of using a `_recursive` version of a function is therefore a per `scheme` `cache` that spans
+//! across multiple calls and perhaps some memory optimizations.
 //! Any non `_recursive` function also uses a per `scheme` `cache`, however it is dropped after the function call.
-//! This essentially means that the resolver function will not be called twice for the same placeholder token. The added `depth` parameter works as follows:
+//! This essentially means that the resolver function will not be called twice for the same placeholder token.
+//! The added `depth` parameter works as follows:
 //! - if `depth = 0` returns `input`.
 //! - if `depth = 1` the result is the same as if calling [`resolve`][fn@resolve] once.
-//! - if `depth > 1` the result is the same as if calling [`resolve`][fn@resolve] `depth` times by passing in as `input` it's own output with the added benefit of a cache.
+//! - if `depth > 1` the result is the same as if calling [`resolve`][fn@resolve] `depth` times
+//!   by passing in as `input` it's own output with the added benefit of a cache.
 //!
 //! # Resolver function
-//! In order to use this module you will need to provide a `resolver function` which is a function that understands a certain scheme and resolves a key to an actual value.
-//! - `F` is the resolver function which is an `FnMut` closure taking a `scheme` and a `key` as parameters, these are parsed from a token `${scheme:key}`.
-//! - `F` is generic over `E` thus it can return any error it wishes. Should it return an error, the same error is propagated to the resolve function which in turn will return it to the caller.
+//! In order to use this module you will need to provide a `resolver function` which is a function that understands
+//! a certain scheme and resolves a key to an actual value.
+//! - `F` is the resolver function which is an `FnMut` closure taking a `scheme` and a `key` as parameters,
+//!   these are parsed from a token `${scheme:key}`.
+//! - `F` is generic over `E` thus it can return any error it wishes. Should it return an error,
+//!   the same error is propagated to the resolve function which in turn will return it to the caller.
 //! - If `F` does not recognize the `scheme` it should return `Ok(None)` indicating that the placeholder should not be replaced.
-//! - If `F` does recognize the `scheme` it should return `Ok(Some(value))` where `value` is the value of the key in the given recognized scheme.
-//! - Should `F` encounter an error while retrieving the value for a `key` in a given known `scheme` it can either forward the error to `resolve` (by returning `Err(retrieve_error)`) which will itself forward it to it's caller or it can return `Ok(None)` indicating that the placeholder should not be replaced.
+//! - If `F` does recognize the `scheme` it should return `Ok(Some(value))`
+//!   where `value` is the value of the key in the given recognized scheme.
+//! - Should `F` encounter an error while retrieving the value for a `key` in a given known `scheme`
+//!   it can either forward the error to `resolve` (by returning `Err(retrieve_error)`) which will itself forward it to
+//!   it's caller or it can return `Ok(None)` indicating that the placeholder should not be replaced.
 //!
 //! `F` is only called once per `scheme:key` pair by `resolve`, the results are cached, other occurrences of the same `scheme:key` will be handled by cached values.
 //!
@@ -51,10 +71,17 @@
 //! should the resolver function return a `Result:Err` the resolve function will forward it to the caller by returning the same error.
 //!
 //! Otherwise it returns `OK(resolved_input)` where `resolved_input` is the same `input` string passed as the `input` parameter with all occurrences of all placeholders replaced with values returned by the resolver function.
+//! # Parse diagram
+//!
+#![doc = simple_mermaid::mermaid!("../doc/interpolate.mmd" left)]
+//!
 
 pub use self::error::VarError;
 
 use std::collections::HashMap;
+
+/// Scheme that represents environment variables.
+pub static ENV_SCHEME: &str = "env";
 
 /// Iteratively calls [`resolve_from_env`][fn@resolve_from_env] with the same `cache` up to `depth` times.
 /// See [`module`][mod@self] level docs docs.
@@ -368,6 +395,8 @@ where
 /// Perform `${scheme:key}` placeholder replacement given an `input` string.
 /// See [`module`][mod@self] level docs docs.
 ///
+#[doc = simple_mermaid::mermaid!("../doc/interpolate.mmd" left)]
+///
 /// # Generics
 /// * `E` - Resolver error
 /// * `F` - Resolver function
@@ -491,38 +520,6 @@ where
     }
 
     Ok((result, resolver_useful))
-
-    // #states
-    // Normal
-    // SchemeStart
-    // Scheme
-    // Key
-
-    // #initial
-    // Normal
-
-    // #accepting
-    // Normal
-
-    // #alphabet
-    // DOLLAR
-    // COLON
-    // OPEN_CURLY
-    // CLOSE_CURLY
-    // NOT_DOLLAR
-    // NOT_COLON
-    // NOT_OPEN_CURLY
-    // NOT_CLOSE_CURLY
-
-    // #transitions
-    // Normal:DOLLAR>SchemeStart
-    // SchemeStart:OPEN_CURLY>Scheme
-    // Scheme:COLON>Key
-    // Key:CLOSE_CURLY>Normal
-    // Normal:NOT_DOLLAR>Normal
-    // SchemeStart:NOT_OPEN_CURLY>Normal
-    // Scheme:NOT_COLON>Scheme
-    // Key:NOT_CLOSE_CURLY>Key
 }
 
 /// Interpolation for [`toml`][mod@::toml] [`Value`][enum@::toml::Value].
@@ -542,7 +539,7 @@ pub mod toml {
             TomlFloat(_) => Ok(()),
             TomlDateTime(_) => Ok(()),
             TomlString(str_val) => {
-                let replaced = super::resolve_from_env_recursive(str_val, depth, "env")?;
+                let replaced = super::resolve_from_env_recursive(str_val, depth, super::ENV_SCHEME)?;
                 *value = TomlString(replaced);
                 Ok(())
             }
@@ -574,8 +571,18 @@ mod error {
     /// This is the same error type as defined in [`std::env::VarError`][enum@StdVarError] with the added originally requested `key`.
     #[derive(Debug)]
     pub enum VarError {
-        NotPresent { key: String },
-        NotUnicode { key: String, value: OsString },
+        /// The specified environment variable was not present in the current process's environment.
+        NotPresent {
+            /// Environment variable key.
+            key: String,
+        },
+        /// The specified environment variable was found, but it did not contain valid unicode data. The found data is returned as a payload of this variant.
+        NotUnicode {
+            /// Environment variable key.
+            key: String,
+            /// Non unicode data payload.
+            value: OsString,
+        },
     }
 
     impl StdError for VarError {}
@@ -587,7 +594,7 @@ mod error {
                 VarError::NotUnicode { key, ref value } => {
                     write!(
                         f,
-                        "environment variable `{key}` was not valid unicode: {:?}",
+                        "environment variable `{key}` is not valid unicode: {:?}",
                         value
                     )
                 }
@@ -596,6 +603,7 @@ mod error {
     }
 
     impl VarError {
+        /// Converts to [`VarError`] from the input [`StdVarError`].
         pub fn from_std(key: &str, err: StdVarError) -> Self {
             match err {
                 StdVarError::NotPresent => Self::NotPresent {

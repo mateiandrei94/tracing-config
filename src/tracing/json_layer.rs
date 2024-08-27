@@ -7,6 +7,9 @@ use serde_json::json;
 use serde_json::Map as JsonMap;
 use serde_json::value::{Value as JsonValue, Value::Null as JsonNull};
 
+use ::tracing as t;
+use ::tracing_subscriber as ts;
+
 use t::{Subscriber, Metadata, Event as TEvent};
 use t::span::Id as SpanId;
 

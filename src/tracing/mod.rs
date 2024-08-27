@@ -1,4 +1,4 @@
-//! This module contains [`tracing-subscriber`][`ts`] [`Layer`][ts::Layer]s and other tracing related additional functionality.
+//! This module contains [`tracing-subscriber`][tracing_subscriber] [`Layer`][tracing_subscriber::Layer]s and other tracing related additional functionality.
 
 mod json_layer;
 mod sifting_layer;

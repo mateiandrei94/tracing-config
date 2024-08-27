@@ -1,0 +1,14 @@
+title = "Pretty colored ts-fmt to stdout"
+
+[layer.ts-fmt]
+type = "fmt"
+writer = "stdout"
+formatter = "pretty"
+span_events = "none"
+ansi = true
+
+[writer.stdout]
+type = "standard_output"
+
+[filter.root]
+level = "trace"
