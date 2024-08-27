@@ -1,0 +1,56 @@
+[package]
+name = "tracing-config"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Matei Andrei"]
+repository = "https://github.com/mateiandrei94/tracing-config"
+description = "Provides a configuration file approach to initializing and configuring tracing and tracing-subscriber"
+keywords = ["tracing", "configuration"]
+categories = ["config", "development-tools::debugging"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# === TRACING ---------------------------------------------------------------------------------------------------------
+t = { package = "tracing", version = "0.1", features = [ # core crate (does not provide subscriber)
+    "max_level_trace", # compile time static, removes tracing macro calls at compile time for debug builds
+    "release_max_level_trace" # compile time static, removes tracing macro calls at compile time for release builds
+]}
+ts = { package = "tracing-subscriber", version = "0.3", features = [ # core subscriber (layer based)
+    "chrono", # timestamps
+    "registry", # shared span storage and base subscriber
+    "env-filter", # filter events/spans at runtime
+    "fmt", # event/span formatter
+    "ansi", # for color terminal output
+    "json", # json
+]}
+ta = { package = "tracing-appender", version = "0.2" } # allows events and spans to be recorded in a non-blocking manner
+# === TIME ------------------------------------------------------------------------------------------------------------
+chrono = { version = "0.4" , features = [ # timestamps
+    "serde" # json
+]}
+chrono-tz = { version = "0.9", features = [ # timestamps with timezones
+    "serde" # json
+]}
+# === DATA ------------------------------------------------------------------------------------------------------------
+indexmap = { version = "2.0", features = [ # ordered hash map
+    "serde" # json
+]}
+serde = { version = "1.0", features = [ # serializing and deserializing data structures
+    "derive" # auto implement required traits using macro
+]}
+serde_json = { version = "1.0", features = [ # json
+    "preserve_order", # keep the order of json object properties
+    "arbitrary_precision" # no floating point rounding
+]}
+toml = { version = "0.8" } # toml (data format for configuration file)
+# === TOOLS -----------------------------------------------------------------------------------------------------------
+uuid = { version = "1.4", features = [ # generate / parse UUIDs
+    "v4",                # uuid v4
+    "serde",             # json
+    "fast-rng",          # faster (but still sufficiently random) RNG
+    "macro-diagnostics", # better diagnostics for compile-time macro UUIDs
+]}
+thiserror = { version = "1.0" } # convenient derive macro for error

@@ -1,0 +1,4 @@
+# .rustfmt.toml
+
+# Prevent rustfmt from reordering import statements
+reorder_imports = false
