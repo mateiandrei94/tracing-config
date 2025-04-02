@@ -1,7 +1,7 @@
 [package]
 name = "tracing-config"
-version = "0.2.0"
-edition = "2021"
+version = "0.2.1"
+edition = "2024"
 license = "MIT"
 readme = "README.md"
 authors = ["Matei Andrei"]
@@ -17,13 +17,13 @@ rustdoc-args = [
 ]
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "macros",
 ]
 
 [dependencies]
-tracing-config-macros = { version = "0.2", path = "macros", optional = true }
+tracing-config-macros = { version = "0.2.1", path = "macros", optional = true }
 # === TRACING ---------------------------------------------------------------------------------------------------------
 tracing = { version = "0.1", features = [ # core crate (does not provide subscriber)
     "max_level_trace", # compile time static, removes tracing macro calls at compile time for debug builds
@@ -59,6 +59,7 @@ serde_json = { version = "1.0", features = [ # json
 toml = { version = "0.8" } # toml (data format for configuration file)
 # === TOOLS -----------------------------------------------------------------------------------------------------------
 directories = "6.0" # getting application specific configuration directory
+sanitise-file-name = "1.0" # for sanitizing file names
 uuid = { version = "1.12", features = [ # generate / parse UUIDs
     "v4",                # uuid v4
     "serde",             # json

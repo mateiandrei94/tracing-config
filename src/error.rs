@@ -69,7 +69,9 @@ pub enum TracingConfigError {
         layer: String,
     },
     /// There is a problem with how the Sifting Layer was configured
-    #[error("The layer `{sifted_layer}` specified in sifting layer `{layer}` has the following configuration error : `{error_message}`")]
+    #[error(
+        "The layer `{sifted_layer}` specified in sifting layer `{layer}` has the following configuration error : `{error_message}`"
+    )]
     SiftingLayerConf {
         /// The name of the referenced layer that is misconfigured
         sifted_layer: String,
@@ -85,7 +87,9 @@ pub enum TracingConfigError {
     #[error("Configuration file does not exist or it could not be read : `{0}`")]
     IoError(#[from] StdIoError),
     /// Could not deserialize a toml file.
-    #[error("Deserialization error, configuration file is either not syntactically a toml file or not a TracingConfig struct : `{0}`")]
+    #[error(
+        "Deserialization error, configuration file is either not syntactically a toml file or not a TracingConfig struct : `{0}`"
+    )]
     Deserialization(#[from] TomlDeError),
     /// Could not serialize a toml file.
     #[error("Serialization error, configuration file could not be serialized : `{0}`")]

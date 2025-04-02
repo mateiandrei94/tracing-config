@@ -6,9 +6,9 @@
 #![doc = include_str!("../README.md")]
 #![doc = include_str!("../doc/prism_js.html")]
 
-pub mod tracing;
 pub mod config;
 pub mod interpolate;
+pub mod tracing;
 
 #[macro_use]
 mod macros; // Contains init!() macro.

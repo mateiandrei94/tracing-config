@@ -16,9 +16,11 @@ static ENV_CUSTOM: &str = "my_var";
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn reset_vars() {
-    env::remove_var(ENV_TRACING_CONFIG);
-    env::remove_var(ENV_TRACING_CONFIG_TEST);
-    env::remove_var(ENV_TRACING_CONFIG_VERBOSITY);
+    unsafe {
+        env::remove_var(ENV_TRACING_CONFIG);
+        env::remove_var(ENV_TRACING_CONFIG_TEST);
+        env::remove_var(ENV_TRACING_CONFIG_VERBOSITY);
+    }
 }
 
 // Please do these tests manually and monitor the standard output.
@@ -31,7 +33,9 @@ fn reset_vars() {
 #[should_panic]
 fn test_verbosity_by_env() {
     reset_vars();
-    env::set_var(ENV_TRACING_CONFIG_VERBOSITY, "debug");
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG_VERBOSITY, "debug");
+    }
     init!();
 }
 
@@ -141,7 +145,9 @@ fn test_init_by_env_file() -> Result<()> {
     let wrong_path = path.join("does_not_exist");
     let env = ENV_CUSTOM;
 
-    env::set_var(ENV_CUSTOM, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_CUSTOM, path.to_str().unwrap());
+    }
 
     init! {
         path : wrong_path.as_path(),
@@ -165,9 +171,10 @@ fn test_init_custom_name() -> Result<()> {
     let wrong_path = path.join("does_not_exist");
     let _env = ENV_CUSTOM;
 
-    env::set_var(ENV_CUSTOM, wrong_path.to_str().unwrap());
-
-    env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_CUSTOM, wrong_path.to_str().unwrap());
+        env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    }
 
     init! {
         path : wrong_path.as_path(),
@@ -192,7 +199,9 @@ fn test_init_non_toml() -> () {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("tests/tracing-garbage.toml");
 
-    env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    }
 
     init! {
         name : "garbage",
@@ -214,7 +223,9 @@ fn test_init_multi() -> () {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("examples");
 
-    env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    }
 
     init! {
         name : "custom",
@@ -244,7 +255,9 @@ fn test_init_other_lib() -> () {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("examples");
 
-    env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    }
 
     init! {
         name : "custom",
@@ -270,7 +283,9 @@ fn test_init_missing_root_filter() -> () {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("tests/missing_root_filter.toml");
 
-    env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, path.to_str().unwrap());
+    }
 
     init! {
         name : "custom",
@@ -292,11 +307,13 @@ fn test_init_normal_ref_var() -> Result<()> {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let path = Path::new(manifest_dir).join("examples");
 
-    env::set_var(ENV_TRACING_CONFIG, "${env:ref_one}");
-    env::set_var("ref_one", "${env:ref_two}");
-    env::set_var("ref_two", "${env:ref_three}");
-    env::set_var("ref_three", "${env:ref_four}");
-    env::set_var("ref_four", path.to_str().unwrap());
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, "${env:ref_one}");
+        env::set_var("ref_one", "${env:ref_two}");
+        env::set_var("ref_two", "${env:ref_three}");
+        env::set_var("ref_three", "${env:ref_four}");
+        env::set_var("ref_four", path.to_str().unwrap());
+    }
 
     init! {
         name : "custom",
@@ -315,10 +332,12 @@ fn test_init_normal_ref_var() -> Result<()> {
 fn test_init_normal_ref_not_found() -> Result<()> {
     reset_vars();
 
-    env::set_var(ENV_TRACING_CONFIG, "${env:ref_one}");
-    env::set_var("ref_one", "${env:ref_two}");
-    env::set_var("ref_two", "${env:ref_three}");
-    env::set_var("ref_three", "${env:ref_four}");
+    unsafe {
+        env::set_var(ENV_TRACING_CONFIG, "${env:ref_one}");
+        env::set_var("ref_one", "${env:ref_two}");
+        env::set_var("ref_two", "${env:ref_three}");
+        env::set_var("ref_three", "${env:ref_four}");
+    }
 
     init! {
         name : "custom",

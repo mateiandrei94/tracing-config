@@ -52,7 +52,10 @@ fn test_http_resolver() -> Result<(), http::HttpError> {
     };
 
     println!("resolved input = {}", input);
-    assert_eq!(input, "Hello John Doe, have a nice day. The following is a placeholder that should not be replaced : ${s:k}. We reiterate that your name is : John Doe");
+    assert_eq!(
+        input,
+        "Hello John Doe, have a nice day. The following is a placeholder that should not be replaced : ${s:k}. We reiterate that your name is : John Doe"
+    );
 
     Ok(())
 }
@@ -71,7 +74,10 @@ fn test_greet_user() {
 
     match greeting {
         Ok(greeting) => println!("{}", greeting),
-        Err(var_error) => println!("Could not greet user since `username` environment variable is either not set or non unicode. The error is : {:?}", var_error),
+        Err(var_error) => println!(
+            "Could not greet user since `username` environment variable is either not set or non unicode. The error is : {:?}",
+            var_error
+        ),
     }
 }
 

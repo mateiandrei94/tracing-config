@@ -539,7 +539,8 @@ pub mod toml {
             TomlFloat(_) => Ok(()),
             TomlDateTime(_) => Ok(()),
             TomlString(str_val) => {
-                let replaced = super::resolve_from_env_recursive(str_val, depth, super::ENV_SCHEME)?;
+                let replaced =
+                    super::resolve_from_env_recursive(str_val, depth, super::ENV_SCHEME)?;
                 *value = TomlString(replaced);
                 Ok(())
             }
@@ -591,7 +592,7 @@ mod error {
         fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
             match &self {
                 VarError::NotPresent { key } => write!(f, "environment variable `{key}` not found"),
-                VarError::NotUnicode { key, ref value } => {
+                VarError::NotUnicode { key, value } => {
                     write!(
                         f,
                         "environment variable `{key}` is not valid unicode: {:?}",

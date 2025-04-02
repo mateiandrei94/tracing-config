@@ -139,7 +139,7 @@ impl PushGuard<ta::non_blocking::WorkerGuard> for WeakMutexGuard {
                 Err(_e) => {
                     return Err(TracingConfigError::PoisonError(
                         "TracingConfigGuard".to_owned(),
-                    ))
+                    ));
                 }
             },
             None => return Err(TracingConfigError::TracingConfigGuardDropped),
@@ -593,6 +593,7 @@ where
 /// # Returns
 /// A [`boxed`][fn@ts::Layer::boxed] [`SiftingLayer`][struct@SiftingLayer] configured given `cfg_layer` or an [`TracingConfigError`][enum@TracingConfigError] (e.g.: if the sifted layer or writer are not present).
 fn create_sifting_layer<S>(
+    verbosity: Option<model::Level>,
     tracing_config: &model::TracingConfig,
     cfg_layer_name: &str,
     cfg_layer: &model::SiftingLayer,
@@ -654,35 +655,89 @@ where
                 cfg_writer.file_ext = cfg_writer
                     .file_ext
                     .map(|file_ext| ss.resolve_variable(&file_ext, ssv));
+                // TODO! somehow include this in the config file, or document it
+                const SANITIZE_OPTIONS: sanitise_file_name::Options<Option<char>> =
+                    sanitise_file_name::Options {
+                        most_fs_safe: true,
+                        windows_safe: true,
+                        replace_with: Some('-'),
+                        collapse_replacements: true,
+                        six_measures_of_barley: "none",
+                        ..sanitise_file_name::Options::DEFAULT
+                    };
+                emit!(INFO, verbosity, "cfg_writer = {cfg_writer:?}");
+                // cfg_writer.directory_path = sanitise_file_name::sanitize_with_options(&cfg_writer.directory_path, &SANITIZE_OPTIONS);
+                cfg_writer.file_name = sanitise_file_name::sanitize_with_options(
+                    &cfg_writer.file_name,
+                    &SANITIZE_OPTIONS,
+                );
+                cfg_writer.file_ext = cfg_writer.file_ext.map(|file_ext| {
+                    sanitise_file_name::sanitize_with_options(&file_ext, &SANITIZE_OPTIONS)
+                });
+                emit!(INFO, verbosity, "cfg_writer = {cfg_writer:?}");
                 model::Writer::File(cfg_writer)
             }
             model::Writer::StandardOutput => model::Writer::StandardOutput,
         };
 
         match cfg_sifted_layer.clone() {
-            SiftedLayer::Fmt(cfg_sifted_layer) => create_fmt_layer(
-                &tracing_config,
-                &cfg_layer_name,
-                &cfg_sifted_layer,
-                Some(&cfg_writer),
-                guard.clone(),
-            )
-            .unwrap() // TODO: this needs work, perhaps we should println the error
-            // a panic here is most likely a configuration file mistake
-            // or maybe we should modify the sifting layer builder and allow it to return an error ?
-            // but then the sifting layer would have to cope with it ...
-            // maybe it should fallback to standard output with a basic tracing subscriber fmt layer ...
-            .boxed(),
-            SiftedLayer::Json(cfg_sifted_layer) => create_json_layer(
-                &tracing_config,
-                &cfg_layer_name,
-                &cfg_sifted_layer,
-                Some(&cfg_writer),
-                guard.clone(),
-            )
-            .unwrap() // TODO : this needs work, perhaps we should println the error
-            // a panic here is most likely a configuration file mistake
-            .boxed(),
+            SiftedLayer::Fmt(cfg_sifted_layer) => {
+                let layer = match create_fmt_layer(
+                    &tracing_config,
+                    &cfg_layer_name,
+                    &cfg_sifted_layer,
+                    Some(&cfg_writer),
+                    guard.clone(),
+                ) {
+                    Ok(layer) => layer,
+                    Err(err) => {
+                        emit!(
+                            ERROR,
+                            verbosity,
+                            "Could not create sifted fmt layer `{}`, please review the configuration or open bug report, the error is: {}",
+                            cfg_layer_name,
+                            err
+                        );
+                        // TODO: this needs work,
+                        // a panic here is most likely a configuration file mistake
+                        // or maybe we should modify the sifting layer builder and allow it to return an error ?
+                        // but then the sifting layer would have to cope with it ...
+                        // maybe it should fallback to standard output with a basic tracing subscriber fmt layer ...
+                        panic!(
+                            "Could not create sifted fmt layer `{}`, please review the configuration or open bug report, the error is: {}",
+                            cfg_layer_name, err
+                        );
+                    }
+                };
+                layer.boxed()
+            }
+            SiftedLayer::Json(cfg_sifted_layer) => {
+                let layer = match create_json_layer(
+                    &tracing_config,
+                    &cfg_layer_name,
+                    &cfg_sifted_layer,
+                    Some(&cfg_writer),
+                    guard.clone(),
+                ) {
+                    Ok(layer) => layer,
+                    Err(err) => {
+                        emit!(
+                            ERROR,
+                            verbosity,
+                            "Could not create sifted fmt layer `{}`, please review the configuration or open bug report, the error is: {}",
+                            cfg_layer_name,
+                            err
+                        );
+                        // TODO: this needs work,
+                        // a panic here is most likely a configuration file mistake
+                        panic!(
+                            "Could not create sifted fmt layer `{}`, please review the configuration or open bug report, the error is: {}",
+                            cfg_layer_name, err
+                        );
+                    }
+                };
+                layer.boxed()
+            }
         }
     });
 
@@ -702,6 +757,7 @@ where
 /// # Returns
 /// A tuple of [`Vec`][struct@Vec] of [`boxed`][fn@ts::Layer::boxed] [`Layer`][trait@ts::layer::Layer] and a [`ArcMutexGuard`][type@ArcMutexGuard] or an [`TracingConfigError`][enum@TracingConfigError].
 fn create_layers<S>(
+    verbosity: Option<model::Level>,
     tracing_config: &model::TracingConfig,
 ) -> Result<(Vec<BoxDynLayer<S>>, ArcMutexGuard), TracingConfigError>
 where
@@ -769,6 +825,7 @@ where
             }
             model::Layer::Sifting(cfg_layer) => {
                 layers.push(create_sifting_layer(
+                    verbosity,
                     tracing_config,
                     cfg_layer_name,
                     cfg_layer,
@@ -874,9 +931,10 @@ fn create_root_filter(
 /// // >
 /// ```
 fn create_subscriber(
+    verbosity: Option<model::Level>,
     tracing_config: &model::TracingConfig,
 ) -> Result<(TracingConfigSubscriber, ArcMutexGuard), TracingConfigError> {
-    let (layers, guard) = create_layers(tracing_config)?;
+    let (layers, guard) = create_layers(verbosity, tracing_config)?;
 
     // the final tracing subscriber calls layers from top to bottom as they are defined in source.
     // registry -> filter -> span values layer -> layers
@@ -993,7 +1051,7 @@ pub fn read_config(
 /// # Returns
 ///
 /// * `Option<PathBuf>` - The path to the configuration file if found, otherwise `None`.
-/// 
+///
 #[doc = include_str!("../doc/configuration_file_search_path.md")]
 ///
 #[doc = include_str!("../doc/reference_links.md")]
@@ -1016,7 +1074,9 @@ pub fn find_config_path(
                     Err(var_error) => {
                         match var_error {
                             crate::interpolate::VarError::NotPresent { key: err_key } => {
-                                emit!(WARN, verbosity,
+                                emit!(
+                                    WARN,
+                                    verbosity,
                                     "Could not resolve ${{env:{err_key}}} token, in resolve chain for '{key}'; '{err_key}' is not present."
                                 );
                             }
@@ -1024,9 +1084,12 @@ pub fn find_config_path(
                                 key: err_key,
                                 value: err_value,
                             } => {
-                                emit!(WARN, verbosity,
+                                emit!(
+                                    WARN,
+                                    verbosity,
                                     "Could not resolve ${{env:{err_key}}} token, in resolve chain for '{key}'; '{err_key}' \
-                                    is present but is not unicode : {:?}.", err_value
+                                    is present but is not unicode : {:?}.",
+                                    err_value
                                 );
                             }
                         }
@@ -1264,7 +1327,14 @@ pub fn initialize(
 
     if *tracing_init_count > 0 {
         *tracing_init_count += 1;
-        emit!(WARN, verbosity, "Ignored init, it must be called only once, usually in the main() function, init was called {} times", *tracing_init_count);
+        if !test {
+            emit!(
+                WARN,
+                verbosity,
+                "Ignored init, it must be called only once, usually in the main() function, init was called {} times",
+                *tracing_init_count
+            );
+        }
         return Err(TracingConfigError::AlreadyInitialized);
     }
 
@@ -1274,7 +1344,7 @@ pub fn initialize(
     ) -> (bool, Result<TracingConfigGuard, TracingConfigError>) {
         let mut is_tracing_initialized = false;
 
-        let (subscriber, guards) = match create_subscriber(&tracing_config) {
+        let (subscriber, guards) = match create_subscriber(verbosity, &tracing_config) {
             Ok(ok) => ok,
             Err(error) => {
                 emit!(
@@ -1347,7 +1417,11 @@ pub fn initialize(
     ) {
         Some(config_path) => config_path,
         None => {
-            emit!(ERROR, verbosity, "Could not find the configuration file, please create a tracing.toml file and double check the 'tracing_config' env var");
+            emit!(
+                ERROR,
+                verbosity,
+                "Could not find the configuration file, please create a tracing.toml file and double check the 'tracing_config' env var"
+            );
             return Err(TracingConfigError::ConfigFileNotFound);
         }
     };

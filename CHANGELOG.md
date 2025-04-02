@@ -1,4 +1,12 @@
-# 0.2.0
+# 0.2.1 (2025-04-02)
+
+**Bug fixes**
+- Fixed a bug where the the program would panic in the sifting layer when constructing a file writer having
+  as path input from span data containing file system characters that are not allowed.
+  the file name and extension are now sanitized.
+  The problem still exists as TODO code comment.
+
+# 0.2.0 (2025-01-27)
 
 **New**
 - Added `init!` macro to replace old buggy initialization functions.
