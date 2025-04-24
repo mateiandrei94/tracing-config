@@ -350,3 +350,52 @@ fn test_init_normal_ref_not_found() -> Result<()> {
 
     Ok(())
 }
+
+/// Test init! by providing a model::TracingConfig
+#[test]
+fn test_init_std_err() -> Result<()> {
+    use common_macros::hash_map;
+
+    let config = model::TracingConfig {
+        title: "test init by config".to_owned(),
+        writers: hash_map!(
+            "stdout".into() => model::Writer::StandardOutput,
+            "stderr".into() => model::Writer::StandardError
+        ),
+        layers: hash_map!(
+            "fmt_layer".into() => model::Layer::Fmt(model::FmtLayer {
+                filter: None,
+                writer: "stderr".into(),
+                formatter: model::FmtLayerFormatter::Compact,
+                span_events: model::SpanEvents::None,
+                ansi: true,
+                time: Some(true),
+                level: Some(true),
+                target: Some(true),
+                file: None,
+                line_number: None,
+                thread_ids: None,
+                thread_names: None,
+                span_list: None,
+                current_span: Some(true),
+                flatten_event: None,
+            })
+        ),
+        filters: hash_map!(
+            "root".into() => model::Filter {
+                level: model::Level::Trace,
+                directives: None,
+            }
+        ),
+    };
+
+    init! {
+        config : config,
+        verbosity : "trace",
+    }
+
+    let _span = info_span!("my_span").entered();
+    info!("This should be on stderr");
+
+    Ok(())
+}

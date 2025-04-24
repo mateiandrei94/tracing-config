@@ -60,8 +60,8 @@ macro_rules! emit {
                 let (level, ansi_color, ansi_color_bold) = match $level {
                     $crate::config::model::Level::Trace =>("TRACE","\x1B[35m", "\x1B[1;35m",),
                     $crate::config::model::Level::Debug =>("DEBUG","\x1B[34m", "\x1B[1;34m",),
-                    $crate::config::model::Level::Info => ("INFO", "\x1B[32m", "\x1B[1;32m",),
-                    $crate::config::model::Level::Warn => ("WARN", "\x1B[33m", "\x1B[1;33m",),
+                    $crate::config::model::Level::Info => (" INFO","\x1B[32m", "\x1B[1;32m",),
+                    $crate::config::model::Level::Warn => (" WARN","\x1B[33m", "\x1B[1;33m",),
                     $crate::config::model::Level::Error =>("ERROR","\x1B[31m", "\x1B[1;31m",),
                 };
                 println!("{ANSI_DIM}{now}{ANSI_RESET} \
@@ -480,6 +480,10 @@ where
             let writer = std::io::stdout;
             box_layer!(fmt_layer, writer, env_filter)
         }
+        model::Writer::StandardError => {
+            let writer = std::io::stderr;
+            box_layer!(fmt_layer, writer, env_filter)
+        }
     })
 }
 
@@ -570,6 +574,15 @@ where
         }
         model::Writer::StandardOutput => {
             let writer = std::io::stdout;
+            let mut json_layer = JsonLayer::new(writer);
+            json_layer_set_conf!(json_layer, cfg_layer);
+            match env_filter {
+                Some(env_filter) => json_layer.with_filter(env_filter).boxed(),
+                None => json_layer.boxed(),
+            }
+        }
+        model::Writer::StandardError => {
+            let writer = std::io::stderr;
             let mut json_layer = JsonLayer::new(writer);
             json_layer_set_conf!(json_layer, cfg_layer);
             match env_filter {
@@ -678,6 +691,7 @@ where
                 model::Writer::File(cfg_writer)
             }
             model::Writer::StandardOutput => model::Writer::StandardOutput,
+            model::Writer::StandardError => model::Writer::StandardError,
         };
 
         match cfg_sifted_layer.clone() {

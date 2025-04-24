@@ -232,6 +232,7 @@ pub struct NonBlockingOptions {
 pub enum Writer {
     File(FileWriter),
     StandardOutput,
+    StandardError,
 }
 
 /// [`fmt Layer (see docs)`][struct@tracing_subscriber::fmt::Layer] configuration.

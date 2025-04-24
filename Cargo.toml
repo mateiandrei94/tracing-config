@@ -1,6 +1,6 @@
 [package]
 name = "tracing-config"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 license = "MIT"
 readme = "README.md"
@@ -23,7 +23,7 @@ members = [
 ]
 
 [dependencies]
-tracing-config-macros = { version = "0.2.1", path = "macros", optional = true }
+tracing-config-macros = { version = "0.2.2", path = "macros", optional = true }
 # === TRACING ---------------------------------------------------------------------------------------------------------
 tracing = { version = "0.1", features = [ # core crate (does not provide subscriber)
     "max_level_trace", # compile time static, removes tracing macro calls at compile time for debug builds
@@ -68,6 +68,9 @@ uuid = { version = "1.12", features = [ # generate / parse UUIDs
 ]}
 thiserror = { version = "2.0" } # convenient derive macro for errors
 simple-mermaid = { version = "0.2" } # for documentation
+
+[dev-dependencies]
+common_macros = { version = "0.1" }
 
 [features]
 default = []

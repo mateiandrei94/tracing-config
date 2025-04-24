@@ -1,3 +1,12 @@
+# 0.2.2 (2025-04-24)
+
+**New**
+- Added `standard_error` writer.
+
+**Notes**
+- Fixed alignment in the emit macro
+- Performed a `cargo update`
+
 # 0.2.1 (2025-04-02)
 
 **Bug fixes**
